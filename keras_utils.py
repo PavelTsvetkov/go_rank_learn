@@ -6,7 +6,7 @@ import zipfile
 from keras import backend as K, Sequential
 
 import numpy as np
-from keras.layers import Conv2D, Flatten, Dense, MaxPool2D
+from keras.layers import Conv2D, Flatten, Dense, MaxPool2D, BatchNormalization, Activation, Dropout
 
 from constants import META_KEY, HISTORY_KEY
 from utils import coord, DAN_LIST, DAN_MAP, encode_board
@@ -41,9 +41,6 @@ def gen_sample(file_map, folder):
 
 
 def get_smp(brd, move):
-    brd = np.zeros((19, 19), dtype=np.float32)
-    move = np.zeros((19, 19), dtype=np.float32)
-
     rot = random.randint(0, 3)
     if rot > 0:
         brd = np.rot90(brd, k=rot)
@@ -82,19 +79,44 @@ def data_gen(zip_name, batch_size):
         yield batch_features, batch_labels
 
 
+def keras_model0():
+    model = Sequential()
+    shape = sample_shape()
+    model = Sequential()
+    model.add(Dense(1024,  activation="relu", input_shape=shape))
+    model.add(Dense(512))
+    model.add(BatchNormalization())
+    model.add(Activation('relu'))
+    model.add(Dropout(0.2))
+    model.add(Flatten())
+    model.add(Dense(len(DAN_LIST), activation="softmax"))
+    model.compile("adam", loss="categorical_crossentropy", metrics=["accuracy"])
+    model.summary()
+
+    return model
+
+
+
+
 def keras_model1():
-    conv_activation = "sigmoid"
+    conv_activation = "relu"
 
     shape = sample_shape()
     model = Sequential()
     model.add(Conv2D(32, kernel_size=3, activation=conv_activation, input_shape=shape))
+    # model.add(BatchNormalization())
     model.add(MaxPool2D())
+
     model.add(Conv2D(64, kernel_size=3, activation=conv_activation))
+    # model.add(BatchNormalization())
     model.add(MaxPool2D())
     # model.add(Conv2D(128, kernel_size=3, activation="relu"))
-    # model.add(MaxPool2D())
+    model.add(MaxPool2D())
     model.add(Flatten())
-    model.add(Dense(64, activation="relu"))
+    model.add(Dense(64))
+    # model.add(BatchNormalization())
+    model.add(Activation('relu'))
+    # model.add(Dropout(0.2))
     model.add(Dense(len(DAN_LIST), activation="softmax"))
     model.compile("adam", loss="categorical_crossentropy", metrics=["accuracy"])
     model.summary()

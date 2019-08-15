@@ -88,6 +88,10 @@ def coord(h):
 DAN_LIST = [str(x) + 'p' for x in range(1, 10)]
 DAN_MAP = {dan: idx for idx, dan in enumerate(DAN_LIST)}
 
+CLASS_WEIGHTS = {0: 30.30873622, 1: 27.55127217, 2: 24.2100271, 3: 24.93649686, 4: 15.32332762, 5: 12.26707861,
+                 6: 8.285184326, 7: 8.596102959,
+                 8: 2.148250571}
+
 
 def get_smp_new(board, mv, to_move):
     brd = np.zeros((19, 19), dtype=np.float32)

@@ -11,10 +11,10 @@ from pathlib import Path
 import luigi
 import numpy as np
 
-
 from constants import WORKDIR, GAMES_MASK, MODELS_DIR, HISTORY_KEY, META_KEY
 from goban import load_goban
-from utils import game_to_numpy
+
+from utils import game_to_numpy, CLASS_WEIGHTS
 
 
 class ProcessDir(luigi.Task):
@@ -112,8 +112,9 @@ class LearnModel1(luigi.Task):
 
     def run(self):
         from keras_utils import keras_model1, data_gen
+        from keras_utils import keras_model0
         EPOHCH_SIZE = 20000
-        batch_size = 100
+        batch_size = 32
 
         VALIDATION_SIZE = 3000
 
@@ -130,7 +131,8 @@ class LearnModel1(luigi.Task):
                           steps_per_epoch=steps_per_epoch,
                           epochs=7,
                           validation_data=data_gen(valid_fold, batch_size),
-                          validation_steps=validation_steps, use_multiprocessing=False, workers=1)
+                          validation_steps=validation_steps, use_multiprocessing=False, workers=1,
+                          class_weight=CLASS_WEIGHTS)
 
         mdl.save(self.output().path)
 
@@ -147,7 +149,6 @@ class VerifyModel1(luigi.Task):
     def run(self):
         from keras_utils import data_gen
         from keras.engine.saving import load_model
-        import pandas as pd
 
         mdl = load_model(self.input()[0].path)
         test_folder = self.input()[1][2].path
@@ -156,7 +157,7 @@ class VerifyModel1(luigi.Task):
         pred_labels = mdl.predict(features, batch_size=100, verbose=True)
 
         stacked = np.hstack([labels, pred_labels])
-        np.savetxt(self.output().path,stacked,delimiter=";")
+        np.savetxt(self.output().path, stacked, delimiter=";")
 
 
 if __name__ == "__main__":
