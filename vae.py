@@ -43,7 +43,7 @@ class VaeGenerator(DefaultDataGenerator):
 def vae_dnn(shape, optimizer="adam"):
     conv_activation = "relu"
 
-    convs = [16]
+    convs = [64]
     encoder_size = 256
 
     model = Sequential()

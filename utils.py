@@ -109,7 +109,7 @@ def encode_board(brd_point, to_move):
     return 1.0 if brd_point == to_move else -1.0
 
 
-def game_to_numpy(game):
+def game_to_numpy(game, black_mode=False):
     meta = game[META_KEY]
     history = game[HISTORY_KEY]
 
@@ -129,7 +129,7 @@ def game_to_numpy(game):
         if not dan in DAN_MAP:
             raise BaseException("Unknown dan ", dan)
         dan_idx = DAN_MAP[dan]
-        board, move = get_smp_new(h["board"], h["move"], to_move)
+        board, move = get_smp_new(h["board"], h["move"], "b" if black_mode else to_move)
         labels = np.zeros((len(DAN_LIST)), dtype=np.float32)
         labels[dan_idx] = 1.0
         board_states[idx] = board

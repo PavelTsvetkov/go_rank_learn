@@ -62,8 +62,12 @@ class SplitTrainValidation(luigi.Task):
 
     parallelism = luigi.IntParameter()
 
+    sample_count = luigi.IntParameter(default=0)
+    black_mode = luigi.BoolParameter(default=False)
+    sub_folder = luigi.Parameter(default="/processed_games")
+
     def output(self):
-        return [luigi.LocalTarget(WORKDIR + "/processed_games" + x) for x in
+        return [luigi.LocalTarget(WORKDIR + self.sub_folder + x) for x in
                 SplitTrainValidation.folders]
 
     def requires(self):
@@ -89,15 +93,18 @@ class SplitTrainValidation(luigi.Task):
 
     def process_input(self, inp, out_zips):
         with zipfile.ZipFile(inp.path) as z:
-            for idx, name in enumerate(z.namelist()):
+            namelist = z.namelist()
+            if self.sample_count > 0:
+                namelist = random.sample(namelist, k=self.sample_count)
+            for idx, name in enumerate(namelist):
                 out = random.choices(out_zips, weights=self.probabilities)[0]
                 try:
                     game = json.loads(z.read(name))
-                    boards, moves, labels = game_to_numpy(game)
+                    boards, moves, labels = game_to_numpy(game, black_mode=self.black_mode)
                     np.savez_compressed(out + "/" + name, boards=boards, moves=moves, labels=labels)
                 except BaseException as ex:
                     print("Failed processing of ", name, " : ", ex)
-                print(inp.path, " : ", idx + 1, " of ", len(z.namelist()))
+                print(inp.path, " : ", idx + 1, " of ", len(namelist))
 
 
 class LearnModel1(luigi.Task):
@@ -120,7 +127,7 @@ class LearnModel1(luigi.Task):
         steps_per_epoch = EPOHCH_SIZE / batch_size
         validation_steps = VALIDATION_SIZE / batch_size
 
-        mdl = keras_model1(optimizer=Adam(lr=0.01),loss="mean_squared_error")
+        mdl = keras_model1(optimizer=Adam(lr=0.01), loss="mean_squared_error")
 
         train_fold = self.input()[0].path
         valid_fold = self.input()[1].path
@@ -197,6 +204,33 @@ class LearnVAE1(luigi.Task):
         mdl.save(self.output().path)
 
 
+class VerifyVAE1(luigi.Task):
+    parallelism = luigi.IntParameter()
+
+    def output(self):
+        return luigi.LocalTarget(MODELS_DIR + "/vae1_check.csv")
+
+    def requires(self):
+        return [LearnVAE1(parallelism=self.parallelism), SplitTrainValidation(parallelism=self.parallelism)]
+
+    def run(self):
+        from keras.engine.saving import load_model
+        from vae import VaeGenerator
+
+        mdl = load_model(self.input()[0].path)
+        test_folder = self.input()[1][2].path
+
+        gen = VaeGenerator(test_folder)
+        features, labels = next(gen.generator(10))
+        pred_labels = mdl.predict(features, batch_size=100, verbose=True)
+
+        for i in range(len(labels)):
+            l = labels[i]
+            p = pred_labels[i]
+            stacked = np.vstack([l[:, :, 0], p[:, :, 0]])
+            np.savetxt(self.output().path + str(i), stacked, delimiter=";")
+
+
 class LearnVAE_Classifier1(luigi.Task):
     parallelism = luigi.IntParameter()
 
@@ -236,6 +270,46 @@ class LearnVAE_Classifier1(luigi.Task):
                           validation_data=val_gen.generator(batch_size),
                           validation_steps=validation_steps, use_multiprocessing=False, workers=1,
                           class_weight=CLASS_WEIGHTS)
+
+        mdl.save(self.output().path)
+
+
+class LearnRNN1(luigi.Task):
+    parallelism = luigi.IntParameter()
+
+    def output(self):
+        return luigi.LocalTarget(MODELS_DIR + "/rnn1.mdl")
+
+    def requires(self):
+        return SplitTrainValidation(parallelism=self.parallelism, sample_count=0, black_mode=True,
+                                    sub_folder="/processed_black")
+
+    def run(self):
+        from rnn import RnnDataGenerator
+        from keras.optimizers import Adam
+        from rnn import rnn1
+        EPOHCH_SIZE = 20000
+        batch_size = 100
+
+        VALIDATION_SIZE = 3000
+
+        steps_per_epoch = EPOHCH_SIZE / batch_size
+        validation_steps = VALIDATION_SIZE / batch_size
+
+        train_fold = self.input()[0].path
+        valid_fold = self.input()[1].path
+        test_fold = self.input()[2].path
+
+        train_gen = RnnDataGenerator(train_fold)
+        val_gen = RnnDataGenerator(valid_fold)
+
+        mdl = rnn1(train_gen.out_shape(), optimizer=Adam(lr=0.01))
+
+        mdl.fit_generator(train_gen.generator(batch_size),
+                          steps_per_epoch=steps_per_epoch,
+                          epochs=7,
+                          validation_data=val_gen.generator(batch_size),
+                          validation_steps=validation_steps, use_multiprocessing=False, workers=1)
 
         mdl.save(self.output().path)
 
