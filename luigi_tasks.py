@@ -13,7 +13,6 @@ import numpy as np
 
 from constants import WORKDIR, GAMES_MASK, MODELS_DIR, HISTORY_KEY, META_KEY
 from goban import load_goban
-
 from utils import game_to_numpy, CLASS_WEIGHTS
 
 
@@ -112,7 +111,7 @@ class LearnModel1(luigi.Task):
 
     def run(self):
         from keras_utils import keras_model1, data_gen
-        from keras_utils import keras_model0
+        from keras.optimizers import Adam
         EPOHCH_SIZE = 20000
         batch_size = 32
 
@@ -121,7 +120,7 @@ class LearnModel1(luigi.Task):
         steps_per_epoch = EPOHCH_SIZE / batch_size
         validation_steps = VALIDATION_SIZE / batch_size
 
-        mdl = keras_model1()
+        mdl = keras_model1(optimizer=Adam(lr=0.01),loss="mean_squared_error")
 
         train_fold = self.input()[0].path
         valid_fold = self.input()[1].path
@@ -158,6 +157,87 @@ class VerifyModel1(luigi.Task):
 
         stacked = np.hstack([labels, pred_labels])
         np.savetxt(self.output().path, stacked, delimiter=";")
+
+
+class LearnVAE1(luigi.Task):
+    parallelism = luigi.IntParameter()
+
+    def output(self):
+        return luigi.LocalTarget(MODELS_DIR + "/VAE1.mdl")
+
+    def requires(self):
+        return SplitTrainValidation(parallelism=self.parallelism)
+
+    def run(self):
+        from vae import VaeGenerator, vae_dnn
+        from keras.optimizers import Adam
+        EPOHCH_SIZE = 20000
+        batch_size = 100
+
+        VALIDATION_SIZE = 3000
+
+        steps_per_epoch = EPOHCH_SIZE / batch_size
+        validation_steps = VALIDATION_SIZE / batch_size
+
+        train_fold = self.input()[0].path
+        valid_fold = self.input()[1].path
+        test_fold = self.input()[2].path
+
+        train_gen = VaeGenerator(train_fold)
+        val_gen = VaeGenerator(valid_fold)
+
+        mdl = vae_dnn(train_gen.out_shape(), optimizer=Adam(lr=0.01))
+
+        mdl.fit_generator(train_gen.generator(batch_size),
+                          steps_per_epoch=steps_per_epoch,
+                          epochs=7,
+                          validation_data=val_gen.generator(batch_size),
+                          validation_steps=validation_steps, use_multiprocessing=False, workers=1)
+
+        mdl.save(self.output().path)
+
+
+class LearnVAE_Classifier1(luigi.Task):
+    parallelism = luigi.IntParameter()
+
+    def output(self):
+        return luigi.LocalTarget(MODELS_DIR + "/VAE_classifier1.mdl")
+
+    def requires(self):
+        return [LearnVAE1(parallelism=self.parallelism), SplitTrainValidation(parallelism=self.parallelism)]
+
+    def run(self):
+        from vae import VaeGenerator
+        from keras.engine.saving import load_model
+        from vae import vae_classifier
+
+        EPOHCH_SIZE = 20000
+        batch_size = 100
+
+        VALIDATION_SIZE = 3000
+
+        steps_per_epoch = EPOHCH_SIZE / batch_size
+        validation_steps = VALIDATION_SIZE / batch_size
+
+        mdl = load_model(self.input()[0].path)
+
+        mdl = vae_classifier(mdl)
+
+        train_fold = self.input()[1][0].path
+        valid_fold = self.input()[1][1].path
+        test_fold = self.input()[1][2].path
+
+        train_gen = VaeGenerator(train_fold, isVAE=False)
+        val_gen = VaeGenerator(valid_fold, isVAE=False)
+
+        mdl.fit_generator(train_gen.generator(batch_size),
+                          steps_per_epoch=steps_per_epoch,
+                          epochs=7,
+                          validation_data=val_gen.generator(batch_size),
+                          validation_steps=validation_steps, use_multiprocessing=False, workers=1,
+                          class_weight=CLASS_WEIGHTS)
+
+        mdl.save(self.output().path)
 
 
 if __name__ == "__main__":
