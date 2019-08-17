@@ -103,6 +103,13 @@ def get_smp_new(board, mv, to_move):
     return brd, move
 
 
+def get_smp_alpha(board, cell_color):
+    brd = np.zeros((19, 19), dtype=np.float32)
+    for x, line in enumerate(board):
+        brd[x] = np.array([1.0 if z == cell_color else 0.0 for z in line], dtype=np.float32)
+    return brd
+
+
 def encode_board(brd_point, to_move):
     if brd_point == "o":
         return 0.0
@@ -135,4 +142,45 @@ def game_to_numpy(game, black_mode=False):
         board_states[idx] = board
         moves[idx] = move
         dans[idx] = labels
-    return board_states, moves, dans
+    return {"board_states": board_states, "moves": moves, "dans": dans}
+
+
+def game_to_numpy_alpha(game):
+    meta = game[META_KEY]
+    history = game[HISTORY_KEY]
+
+    if len(history) < 3:
+        raise BaseException("Game is too short")
+
+    empty_cells = np.zeros(shape=(len(history) - 1, 19, 19), dtype=np.float32)
+    black_cells = np.zeros(shape=(len(history) - 1, 19, 19), dtype=np.float32)
+    white_cells = np.zeros(shape=(len(history) - 1, 19, 19), dtype=np.float32)
+    moves = np.zeros(shape=(len(history) - 1, 19, 19), dtype=np.float32)
+    white_dans = np.zeros(shape=(len(DAN_LIST)), dtype=np.float32)
+    black_dans = np.zeros(shape=(len(DAN_LIST)), dtype=np.float32)
+    black_to_move = np.zeros(shape=(len(history) - 1), dtype=np.float32)
+
+    white_dans[DAN_MAP[meta["WR"]]] = 1.0
+    black_dans[DAN_MAP[meta["BR"]]] = 1.0
+
+    for idx, h in enumerate(history):
+        if not ("move" in h):
+            break
+        if h["to_move"] == "b":
+            black_to_move[idx] = 1.0
+        board = h["board"]
+        empty_cells[idx] = get_smp_alpha(board, "o")
+        black_cells[idx] = get_smp_alpha(board, "b")
+        white_cells[idx] = get_smp_alpha(board, "w")
+        mx, my = coord(h["move"])
+        moves[idx][mx][my] = 1.0
+
+    return {
+        "empty_cells": empty_cells,
+        "black_cells": black_cells,
+        "white_cells": white_cells,
+        "moves": moves,
+        "white_dans": white_dans,
+        "black_dans": black_dans,
+        "black_to_move": black_to_move
+    }

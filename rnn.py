@@ -1,12 +1,14 @@
 import os
 import random
 
+import luigi
 import numpy as np
-from keras.layers import LSTM, Dense, GRU
 from keras import Sequential
 from keras.layers import Bidirectional
+from keras.layers import Dense, GRU
 
-from keras_utils import sample_shape
+from constants import MODELS_DIR
+from luigi_tasks import SplitTrainValidation
 from utils import DAN_LIST
 
 
@@ -75,7 +77,41 @@ def rnn1(shape, optimizer="adam"):
     return model
 
 
-gen = RnnDataGenerator("C:\\tmp\\kgs_learn_workdir\\processed_black\\train")
-data, labels = next(gen.generator(1))
-print(data.shape)
-print(labels.shape)
+class LearnRNN1(luigi.Task):
+    parallelism = luigi.IntParameter()
+
+    def output(self):
+        return luigi.LocalTarget(MODELS_DIR + "/rnn1.mdl")
+
+    def requires(self):
+        return SplitTrainValidation(parallelism=self.parallelism, sample_count=0, black_mode=True,
+                                    sub_folder="/processed_black")
+
+    def run(self):
+        from rnn import RnnDataGenerator
+        from keras.optimizers import Adam
+        from rnn import rnn1
+        EPOHCH_SIZE = 20000
+        batch_size = 100
+
+        VALIDATION_SIZE = 3000
+
+        steps_per_epoch = EPOHCH_SIZE / batch_size
+        validation_steps = VALIDATION_SIZE / batch_size
+
+        train_fold = self.input()[0].path
+        valid_fold = self.input()[1].path
+        test_fold = self.input()[2].path
+
+        train_gen = RnnDataGenerator(train_fold)
+        val_gen = RnnDataGenerator(valid_fold)
+
+        mdl = rnn1(train_gen.out_shape(), optimizer=Adam(lr=0.01))
+
+        mdl.fit_generator(train_gen.generator(batch_size),
+                          steps_per_epoch=steps_per_epoch,
+                          epochs=7,
+                          validation_data=val_gen.generator(batch_size),
+                          validation_steps=validation_steps, use_multiprocessing=False, workers=1)
+
+        mdl.save(self.output().path)
