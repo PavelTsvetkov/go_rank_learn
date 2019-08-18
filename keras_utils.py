@@ -1,23 +1,14 @@
 import os
-import os
 import random
 
 import numpy as np
 from keras import backend as K, Sequential, regularizers, Input, Model
-from keras.layers import Conv2D, Flatten, Dense, MaxPool2D, BatchNormalization, Activation, Dropout, add, \
+from keras.layers import Conv2D, Dense, BatchNormalization, Activation, Dropout, add, \
     GlobalAveragePooling2D
 
 from utils import DAN_LIST
 
 DAN_SET = set(DAN_LIST)
-
-
-def sample_shape(layers=2, size=19):
-    if K.image_data_format() == 'channels_last':
-        shape = (size, size, layers)
-    else:
-        shape = (layers, size, size)
-    return shape
 
 
 def gen_sample(file_map, folder):
@@ -91,7 +82,7 @@ def data_gen(zip_name, batch_size):
         yield batch_features, batch_labels
 
 
-def data_gen_alpha(zip_name, batch_size):
+def data_gen_alpha(zip_name, batch_size, vae_mode=False, flatten=False):
     smp_shape = sample_shape(3)
     all_files = [zip_name + "/" + x for x in os.listdir(zip_name)]
     while True:
@@ -114,8 +105,17 @@ def data_gen_alpha(zip_name, batch_size):
             except BaseException as ex:
                 print(name, ex)
                 raise ex
-
-        yield batch_features, batch_labels
+        if not vae_mode:
+            yield batch_features, batch_labels
+        else:
+            if not flatten:
+                yield batch_features, batch_features
+            else:
+                out_features = batch_features
+                if K.image_data_format() == 'channels_first':
+                    out_features = np.moveaxis(out_features, 1, 3)
+                out_features = np.reshape(batch_features, (batch_size,19 * 19, 3))
+                yield batch_features, out_features
 
 
 def keras_model0():
@@ -242,3 +242,11 @@ class DefaultDataGenerator:
 
     def out_shape(self):
         return sample_shape(self.layers, 19)
+
+
+def sample_shape(layers=2, size=19):
+    if K.image_data_format() == 'channels_last':
+        shape = (size, size, layers)
+    else:
+        shape = (layers, size, size)
+    return shape

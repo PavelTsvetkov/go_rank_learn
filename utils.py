@@ -184,3 +184,5 @@ def game_to_numpy_alpha(game):
         "black_dans": black_dans,
         "black_to_move": black_to_move
     }
+
+

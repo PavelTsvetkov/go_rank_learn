@@ -219,11 +219,15 @@ class LearnVAE1(luigi.Task):
         return luigi.LocalTarget(MODELS_DIR + "/VAE1.mdl")
 
     def requires(self):
-        return SplitTrainValidation(parallelism=self.parallelism)
+        return SplitTrainValidation_Alpha_Gather(parallelism=self.parallelism, sub_folder="/processed_alpha")
 
     def run(self):
         from vae import VaeGenerator, vae_dnn
         from keras.optimizers import Adam
+        from keras_utils import data_gen_alpha
+        from keras_utils import sample_shape
+        from keras.optimizers import Adadelta
+
         EPOHCH_SIZE = 20000
         batch_size = 100
 
@@ -236,15 +240,18 @@ class LearnVAE1(luigi.Task):
         valid_fold = self.input()[1].path
         test_fold = self.input()[2].path
 
-        train_gen = VaeGenerator(train_fold)
-        val_gen = VaeGenerator(valid_fold)
+        train_gen = data_gen_alpha(train_fold, batch_size, vae_mode=True, flatten=True)
+        val_gen = data_gen_alpha(valid_fold, batch_size, vae_mode=True, flatten=True)
 
-        mdl = vae_dnn(train_gen.out_shape(), optimizer=Adam(lr=0.01))
+        # optimizer = Adam(lr=0.001)
+        optimizer = Adadelta()
 
-        mdl.fit_generator(train_gen.generator(batch_size),
+        mdl = vae_dnn(sample_shape(3), optimizer=optimizer)
+
+        mdl.fit_generator(train_gen,
                           steps_per_epoch=steps_per_epoch,
-                          epochs=7,
-                          validation_data=val_gen.generator(batch_size),
+                          epochs=5,
+                          validation_data=val_gen,
                           validation_steps=validation_steps, use_multiprocessing=False, workers=1)
 
         mdl.save(self.output().path)
@@ -257,18 +264,23 @@ class VerifyVAE1(luigi.Task):
         return luigi.LocalTarget(MODELS_DIR + "/vae1_check.csv")
 
     def requires(self):
-        return [LearnVAE1(parallelism=self.parallelism), SplitTrainValidation(parallelism=self.parallelism)]
+        return [LearnVAE1(parallelism=self.parallelism),
+                SplitTrainValidation_Alpha_Gather(parallelism=self.parallelism, sub_folder="/processed_alpha")]
 
     def run(self):
         from keras.engine.saving import load_model
         from vae import VaeGenerator
+        from keras_utils import sample_shape
+        from keras_utils import data_gen_alpha
 
         mdl = load_model(self.input()[0].path)
         test_folder = self.input()[1][2].path
 
-        gen = VaeGenerator(test_folder)
-        features, labels = next(gen.generator(10))
+        batch_size = 10
+        gen = data_gen_alpha(test_folder, batch_size, vae_mode=True)
+        features, labels = next(gen)
         pred_labels = mdl.predict(features, batch_size=100, verbose=True)
+        pred_labels=np.reshape(pred_labels,(batch_size,19,19,3))
 
         for i in range(len(labels)):
             l = labels[i]
@@ -284,7 +296,8 @@ class LearnVAE_Classifier1(luigi.Task):
         return luigi.LocalTarget(MODELS_DIR + "/VAE_classifier1.mdl")
 
     def requires(self):
-        return [LearnVAE1(parallelism=self.parallelism), SplitTrainValidation(parallelism=self.parallelism)]
+        return [LearnVAE1(parallelism=self.parallelism),
+                SplitTrainValidation_Alpha_Gather(parallelism=self.parallelism, sub_folder="/processed_alpha")]
 
     def run(self):
         from vae import VaeGenerator
